@@ -1,7 +1,6 @@
 package dev.nobrayner.blokit
 
 import android.os.Bundle
-import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -9,10 +8,16 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.Animatable
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -20,7 +25,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -46,13 +51,16 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxState
 import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
-import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -66,6 +74,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -75,7 +84,6 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import dev.nobrayner.blokit.ui.theme.BlokitTheme
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.DurationUnit
@@ -86,11 +94,13 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             BlokitTheme {
-                val todoModel: TodoViewModel = viewModel()
+                val todoModel: IncompleteTodoViewModel = viewModel()
                 val blockModel: BlockViewModel = viewModel()
 
+                val snackbarHostState = remember { SnackbarHostState() }
+
                 Scaffold(
-                    contentWindowInsets = WindowInsets(0),
+                    snackbarHost = { SnackbarHost(snackbarHostState) },
                     modifier = Modifier
                         .fillMaxSize()
                         .safeContentPadding(),
@@ -101,11 +111,13 @@ class MainActivity : ComponentActivity() {
                     Column(
                         modifier = Modifier
                             .padding(innerPadding)
+                            .consumeWindowInsets(innerPadding)
                             .fillMaxSize()
                     ) {
                         Blocks(blockModel)
                         TodoList(
                             todoModel,
+                            snackbarHostState,
                             modifier = Modifier
                                 .fillMaxSize()
                         )
@@ -183,7 +195,15 @@ fun Blocks(blockModel: BlockViewModel) {
             .padding(horizontal = 16.dp),
         contentAlignment = Alignment.Center,
     ) {
-        if (timerState.isRunning) {
+        AnimatedVisibility(
+            visible = timerState.isRunning,
+            enter = slideInVertically(
+                initialOffsetY = { -it / 2 }
+            ) + fadeIn(),
+            exit = slideOutVertically(
+                targetOffsetY = { -it / 2 }
+            ) + fadeOut(),
+        ) {
             Text(
                 color = MaterialTheme.colorScheme.primary,
                 fontSize = 64.sp,
@@ -197,7 +217,12 @@ fun Blocks(blockModel: BlockViewModel) {
                         showCancelDialog = true
                     }
             )
-        } else {
+        }
+        AnimatedVisibility(
+            visible = !timerState.isRunning,
+            enter = fadeIn(),
+            exit = fadeOut()
+        ) {
             Button(
                 onClick = {
                     showStartDialog = true
@@ -222,32 +247,24 @@ fun TodaysBlocks(blockModel: BlockViewModel) {
         contentAlignment = Alignment.Center,
     ) {
         if (blocks.isEmpty()) {
-            Text(
-                "No blocks today",
-                color = MaterialTheme.colorScheme.primaryContainer
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(4.dp))
+                    .border(2.dp, Color.Gray)
+                    .size(32.dp),
             )
         } else {
             Row(
                 modifier = Modifier
-                    .padding(10.dp),
+                    .padding(10.dp)
+                    .animateContentSize(),
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 for (block in blocks.take(11)) {
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(4.dp))
-                            .background(MaterialTheme.colorScheme.primary)
-                            .size(32.dp),
-                    )
+                    Block()
                 }
                 if (blocks.size > 12) {
-                    Box(
-                        modifier = Modifier
-                        .clip(RoundedCornerShape(4.dp))
-                        .background(MaterialTheme.colorScheme.primary)
-                        .size(32.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
+                    Block {
                         val hidden = blocks.size - 11
                         Text(
                             "+$hidden",
@@ -255,12 +272,7 @@ fun TodaysBlocks(blockModel: BlockViewModel) {
                         )
                     }
                 } else if (blocks.size == 12) {
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(4.dp))
-                            .background(MaterialTheme.colorScheme.primary)
-                            .size(32.dp),
-                    )
+                    Block()
                 }
             }
         }
@@ -268,8 +280,23 @@ fun TodaysBlocks(blockModel: BlockViewModel) {
 }
 
 @Composable
+fun Block(
+    content: @Composable () -> Unit = {}
+) {
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(4.dp))
+            .background(MaterialTheme.colorScheme.primary)
+            .size(32.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        content()
+    }
+}
+
+@Composable
 fun NewTodo(
-    todoModel: TodoViewModel
+    todoModel: IncompleteTodoViewModel
 ) {
     var text by remember {
         mutableStateOf("")
@@ -327,15 +354,14 @@ fun NewTodo(
 
 @Composable
 fun TodoList(
-    todoModel: TodoViewModel,
+    todoModel: IncompleteTodoViewModel,
+    snackbarHostState: SnackbarHostState,
     modifier: Modifier = Modifier,
 ) {
     val todos by todoModel.incompleteTodos.collectAsState()
     val coroutineScope = rememberCoroutineScope()
     val listState = rememberLazyListState()
-    var shouldScrollToBottom by remember {
-        mutableStateOf(false)
-    }
+    var shouldScrollToBottom by remember { mutableStateOf(false) }
 
     LaunchedEffect(todos.size) {
         if (shouldScrollToBottom) {
@@ -356,16 +382,87 @@ fun TodoList(
         state = listState,
     ) {
         items(items = todos, key = { it.id }) { todo ->
-            SwipeToDeleteContainer(
-                item = todo,
-                onSwipeLeft = {
-                    todoModel.completeTodo(it)
-                },
-                onSwipeRight = {
-                    todoModel.toggleMarked(it)
+            val animationDuration = 500.milliseconds
+
+            var shouldActionComplete by remember {
+                mutableStateOf(false)
+            }
+            var shouldActionMark by remember {
+                mutableStateOf(false)
+            }
+
+            val density = LocalDensity.current
+            val swipeState = remember(todo.id, todoModel.resetSignalFor(todo)) {
+                SwipeToDismissBoxState(
+                    initialValue = SwipeToDismissBoxValue.Settled,
+                    density = density,
+                    confirmValueChange = { value ->
+                        when (value) {
+                            SwipeToDismissBoxValue.EndToStart -> {
+                                shouldActionComplete = true
+                                true
+                            }
+
+                            SwipeToDismissBoxValue.StartToEnd -> {
+                                shouldActionMark = true
+                                true
+                            }
+
+                            else -> false
+                        }
+                    },
+                    positionalThreshold = { width ->
+                        (width * 0.3).dp.value
+                    }
+                )
+            }
+
+            LaunchedEffect(shouldActionComplete) {
+                if(shouldActionComplete) {
+                    delay(animationDuration)
+                    todoModel.completeTodo(todo)
+                    coroutineScope.launch {
+                        snackbarHostState.currentSnackbarData?.dismiss()
+
+                        val result = snackbarHostState.showSnackbar(
+                            message = "Task completed",
+                            actionLabel = "Undo",
+                            duration = SnackbarDuration.Short,
+                        )
+
+                        if (result == SnackbarResult.ActionPerformed) {
+                            todoModel.undoCompleteTodo(todo)
+                            swipeState.reset()
+                            shouldActionComplete = false
+                        }
+                    }
                 }
+            }
+
+            LaunchedEffect(shouldActionMark) {
+                if (shouldActionMark) {
+                    todoModel.toggleMarked(todo)
+                    swipeState.reset()
+                    shouldActionMark = false
+                }
+            }
+
+            AnimatedVisibility(
+                visible = !shouldActionComplete,
+                enter = expandVertically(expandFrom = Alignment.Top) + fadeIn(),
+                exit = shrinkVertically(shrinkTowards = Alignment.Top) + fadeOut()
             ) {
-                IncompleteTodo(todo)
+                SwipeToDismissBox(
+                    state = swipeState,
+                    backgroundContent = {
+                        SwipeBackground(swipeDismissState = swipeState)
+                    },
+                    content = {
+                        IncompleteTodo(todo)
+                    },
+                    enableDismissFromEndToStart = true,
+                    enableDismissFromStartToEnd = true,
+                )
             }
         }
     }
@@ -390,9 +487,19 @@ fun IncompleteTodo(
 
     LaunchedEffect(todo.marked) {
         if (todo.marked) {
-            animatedMarkedColor.animateTo(markedColor, animationSpec = tween(durationMillis = animationDuration.toInt(DurationUnit.MILLISECONDS)))
+            animatedMarkedColor.animateTo(
+                markedColor,
+                animationSpec = tween(
+                    durationMillis = animationDuration.toInt(DurationUnit.MILLISECONDS)
+                )
+            )
         } else {
-            animatedMarkedColor.animateTo(Color.Transparent, animationSpec = tween(durationMillis = animationDuration.toInt(DurationUnit.MILLISECONDS)))
+            animatedMarkedColor.animateTo(
+                Color.Transparent,
+                animationSpec = tween(
+                    durationMillis = animationDuration.toInt(DurationUnit.MILLISECONDS)
+                )
+            )
         }
     }
 
@@ -416,80 +523,6 @@ fun IncompleteTodo(
             Spacer(modifier = Modifier.width(4.dp))
             Text(text = todo.content)
         }
-    }
-}
-
-@Composable
-fun <T> SwipeToDeleteContainer(
-    item: T,
-    onSwipeLeft: (T) -> Unit,
-    onSwipeRight: (T) -> Unit,
-    animationDuration: Duration = 500.milliseconds,
-    content: @Composable (T) -> Unit
-) {
-    var shouldActionLeftSwipe by remember {
-        mutableStateOf(false)
-    }
-    var shouldActionRightSwipe by remember {
-        mutableStateOf(false)
-    }
-
-    val state = rememberSwipeToDismissBoxState(
-        // Use this if you don't want the confirmation step
-        confirmValueChange = { value ->
-            when (value) {
-                SwipeToDismissBoxValue.EndToStart -> {
-                    shouldActionLeftSwipe = true
-                    true
-                }
-                SwipeToDismissBoxValue.StartToEnd -> {
-                    shouldActionRightSwipe = true
-                    true
-                }
-                else -> false
-            }
-        },
-        positionalThreshold = { width ->
-            val threshold = (width * 0.3).dp.value
-            Log.d("DEBUG", "positionalThreshold: ($width) -> $threshold")
-            threshold
-        }
-
-    )
-
-    LaunchedEffect(key1 = shouldActionLeftSwipe) {
-        if(shouldActionLeftSwipe) {
-            delay(animationDuration)
-            onSwipeLeft(item)
-            shouldActionLeftSwipe = false
-            state.reset()
-        }
-    }
-
-    LaunchedEffect(key1 = shouldActionRightSwipe) {
-        if (shouldActionRightSwipe) {
-            onSwipeRight(item)
-            state.reset()
-            shouldActionRightSwipe = false
-        }
-    }
-
-    AnimatedVisibility(
-        visible = !shouldActionLeftSwipe,
-        exit = shrinkVertically(
-            animationSpec = tween(durationMillis = animationDuration.toInt(DurationUnit.MILLISECONDS)),
-            shrinkTowards = Alignment.Top
-        ) + fadeOut()
-    ) {
-        SwipeToDismissBox(
-            state = state,
-            backgroundContent = {
-                SwipeBackground(swipeDismissState = state)
-            },
-            content = { content(item) },
-            enableDismissFromEndToStart = true,
-            enableDismissFromStartToEnd = true,
-        )
     }
 }
 

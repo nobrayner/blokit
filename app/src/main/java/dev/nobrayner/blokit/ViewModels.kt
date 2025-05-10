@@ -1,6 +1,7 @@
 package dev.nobrayner.blokit
 
 import android.app.Application
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.asFlow
@@ -32,20 +33,21 @@ enum class TodoView {
     All,
 }
 
-class TodoViewModel(application: Application) : AndroidViewModel(application) {
+class IncompleteTodoViewModel(application: Application) : AndroidViewModel(application) {
     private val todoDao = AppDatabase.getInstance(application).todoDao()
 
-    val incompleteTodos: StateFlow<List<Todo>> = todoDao.getIncompleteTodos().stateIn(
-        scope = viewModelScope,
-        started = SharingStarted.WhileSubscribed(5000),
-        initialValue = emptyList()
-    )
+    val incompleteTodos: StateFlow<List<Todo>> = todoDao
+        .getIncompleteTodos()
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = emptyList()
+        )
+    private val resetSignals = mutableStateMapOf<Int, Long>()
 
-//    val markedTodos: StateFlow<List<Todo>> = todoDao.getMarkedTodos().stateIn(
-//        scope = viewModelScope,
-//        started = SharingStarted.WhileSubscribed(5000),
-//        initialValue = emptyList()
-//    )
+    fun resetSignalFor(todo: Todo): Long? {
+        return resetSignals[todo.id]
+    }
 
     var view = mutableStateOf(TodoView.Incomplete)
 
@@ -80,6 +82,15 @@ class TodoViewModel(application: Application) : AndroidViewModel(application) {
             )
 
             todoDao.update(markedTodo)
+        }
+    }
+
+    fun undoCompleteTodo(todo: Todo) {
+        resetSignals[todo.id] = System.currentTimeMillis()
+        viewModelScope.launch {
+            val incompleteTodo = todo.copy(completed = false, completedAt = null)
+
+            todoDao.update(incompleteTodo)
         }
     }
 }

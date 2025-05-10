@@ -52,7 +52,7 @@ data class Block(
 
 @Dao
 interface BlockDao {
-    @Query("SELECT * FROM block WHERE DATE(started_at) = DATE('now')")
+    @Query("SELECT * FROM block WHERE DATE(started_at, 'localtime') = DATE('now', 'localtime')")
     fun getTodaysBlocks(): Flow<List<Block>>
 
     @Insert
